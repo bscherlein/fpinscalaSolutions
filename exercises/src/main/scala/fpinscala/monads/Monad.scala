@@ -36,11 +36,14 @@ trait Monad[M[_]] extends Functor[M] {
   def map2[A,B,C](ma: M[A], mb: M[B])(f: (A, B) => C): M[C] =
     flatMap(ma)(a => map(mb)(b => f(a, b)))
 
-  def sequence[A](lma: List[M[A]]): M[List[A]] = ???
+  def sequence[A](lma: List[M[A]]): M[List[A]] =
+    lma.foldRight(unit[List[A]](Nil)) { (head, tail) => map2(head, tail)(_ :: _) }
 
-  def traverse[A,B](la: List[A])(f: A => M[B]): M[List[B]] = ???
+  def traverse[A,B](la: List[A])(f: A => M[B]): M[List[B]] =
+    sequence(la.map(f))
 
-  def replicateM[A](n: Int, ma: M[A]): M[List[A]] = ???
+  def replicateM[A](n: Int, ma: M[A]): M[List[A]] =
+    sequence(List.fill(n)(ma))
 
   def compose[A,B,C](f: A => M[B], g: B => M[C]): A => M[C] = ???
 
@@ -72,7 +75,15 @@ object Monad {
 
   val listMonad: Monad[List] = ???
 
-  def stateMonad[S] = ???
+  def stateMonad[S] =
+    new Monad[({type f[x] = State[S, x]})#f] {
+      override def unit[A](a: => A): State[S, A] = State(s => (a, s))
+      override def flatMap[A, B](ma: State[S, A])(f: (A) => State[S, B]): State[S, B] =
+        ma.flatMap(f)
+      def getState[S]: State[S, S] = State(s => (s, s))
+      def setState[S](s: => S): State[S, Unit] = State(_ => ((), s))
+      getState[Int].flatMap(setState) == ()
+    }
 
   val idMonad: Monad[Id] = ???
 
@@ -86,8 +97,9 @@ case class Id[A](value: A) {
 
 object Reader {
   def readerMonad[R] = new Monad[({type f[x] = Reader[R,x]})#f] {
-    def unit[A](a: => A): Reader[R,A] = ???
-    override def flatMap[A,B](st: Reader[R,A])(f: A => Reader[R,B]): Reader[R,B] = ???
+    def unit[A](a: => A): Reader[R,A] = Reader { lazy val aa = a; _ => aa}
+    override def flatMap[A,B](st: Reader[R,A])(f: A => Reader[R,B]): Reader[R,B] =
+      Reader(r => f(st.run(r)).run(r))
   }
 }
 
